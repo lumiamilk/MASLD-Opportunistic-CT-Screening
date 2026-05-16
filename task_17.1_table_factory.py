@@ -74,15 +74,17 @@ def generate_table_3_1(df):
     logging.info("Generating Table 3-1: Baseline Characteristics")
     
     fusion_df = get_fusion_cohort(df)
+    non_fusion_df = df[~df.index.isin(fusion_df.index)]
+    
+    n_total = len(df)
+    n_fusion = len(fusion_df)
+    n_non_fusion = len(non_fusion_df)
     
     # Variables mapping
     # 'Variable Name': ('Column Name', 'Type') -> Type: 'cont' or 'cat'
     vars_map = {
         'Age (years)': ('age', 'cont'),
-        'Male Sex': ('sex', 'cat_binary'), # Assumes 1=Male? Need to check. In comp analysis: 118 Male, 206 Female. Let's assume 1=Male usually, check data.
-        # Checking comprehensive_analysis.md: Sex: 女 206, 男 118. 
-        # In master csv, 'sex' is 0 or 1. Usually 1 is Male.
-        # Let's verify with count.
+        'Male Sex': ('sex', 'cat_binary'),
         'BMI (kg/m²)': ('BMI', 'cont'),
         'Type 2 Diabetes': ('T2DM', 'cat_binary'),
         'Hypertension': ('High_Blood_pressure', 'cat_binary'),
@@ -108,24 +110,25 @@ def generate_table_3_1(df):
         if vtype == 'cont':
             val_total = format_cont_var(total_data)
         elif vtype == 'cat_binary':
-            # Assuming 1 is the positive class
             val_total = format_cat_var(total_data, 1)
             
         # Fusion Cohort
         fusion_data = fusion_df[col]
         if vtype == 'cont':
             val_fusion = format_cont_var(fusion_data)
-            # Compare Total vs Fusion? Or Fusion vs Non-Fusion? 
-            # Usually "Table 1" compares two groups (e.g. Training vs Validation, or Included vs Excluded). 
-            # The prompt asks for "Total" and "Fusion". Comparison P-value usually implies testing difference between the *displayed* groups. 
-            # Comparing Total vs Subset is statistically weird (subset is part of total). 
-            # Standard practice: Compare Included (Fusion) vs Excluded (Non-Fusion). 
-            # I will calculate P-value for Fusion vs Non-Fusion.
-            non_fusion_df = df[~df.index.isin(fusion_df.index)]
-            non_fusion_data = non_fusion_df[col]
+        elif vtype == 'cat_binary':
+            val_fusion = format_cat_var(fusion_data, 1)
             
+        # Non-Fusion Cohort
+        non_fusion_data = non_fusion_df[col]
+        if vtype == 'cont':
+            val_non_fusion = format_cont_var(non_fusion_data)
+        elif vtype == 'cat_binary':
+            val_non_fusion = format_cat_var(non_fusion_data, 1)
+        
+        # P-value: Fusion vs Non-Fusion
+        if vtype == 'cont':
             try:
-                # Check normality for test selection
                 _, p_norm = stats.shapiro(fusion_data.dropna())
                 if p_norm > 0.05:
                     _, p = stats.ttest_ind(fusion_data.dropna(), non_fusion_data.dropna())
@@ -133,16 +136,8 @@ def generate_table_3_1(df):
                     _, p = stats.mannwhitneyu(fusion_data.dropna(), non_fusion_data.dropna())
             except:
                 p = 1.0
-                
         elif vtype == 'cat_binary':
-            val_fusion = format_cat_var(fusion_data, 1)
-            
-            non_fusion_df = df[~df.index.isin(fusion_df.index)]
-            non_fusion_data = non_fusion_df[col]
-            
-            # Chi-square
             try:
-                # Contingency table
                 c1 = (fusion_data == 1).sum()
                 c2 = (fusion_data == 0).sum()
                 c3 = (non_fusion_data == 1).sum()
@@ -153,9 +148,10 @@ def generate_table_3_1(df):
         
         rows.append({
             'Variable': label,
-            'Total (N=324)': val_total,
-            'Fusion Cohort (N=164)': val_fusion,
-            'P-value (vs Excluded)': format_p_value(p)
+            f'Total (N={n_total})': val_total,
+            f'Fusion Cohort (N={n_fusion})': val_fusion,
+            f'Non-Fusion Cohort (N={n_non_fusion})': val_non_fusion,
+            'P-value (Fusion vs Non-Fusion)': format_p_value(p)
         })
         
     res_df = pd.DataFrame(rows)
